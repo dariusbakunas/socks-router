@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.10.7/.schema/devbox.schema.json",
+  "packages": {
+    "go":         "latest",
+    "cargo":      "latest",
+    "rustup":     "latest",
+    "libiconv":   "latest",
+    "pre-commit": "latest",
+    "commitlint": "latest",
+    "commitizen": "latest",
+    "openssl": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    },
+    "pkg-config": "latest",
+    "goreleaser": "latest",
+    "zig":        "latest"
+  },
+  "env": {
+    "GOPATH": "$HOME/go/",
+    "PATH":   "$PATH:$HOME/go/bin"
+  },
+  "shell": {
+    "init_hook": [
+      "export \"GOROOT=$(go env GOROOT)\"",
+      "projectDir=$(dirname $(readlink -f \"$0\"))",
+      "rustupHomeDir=\"$projectDir\"/.rustup",
+      "mkdir -p $rustupHomeDir",
+      "export RUSTUP_HOME=$rustupHomeDir",
+      "rustup default stable",
+      "cargo fetch"
+    ],
+    "scripts": {
+      "test":       "cargo test -- --show-output",
+      "start":      "cargo run",
+      "build-docs": "cargo doc"
+    }
+  }
+}
