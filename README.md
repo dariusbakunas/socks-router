@@ -41,7 +41,7 @@ routes:
         - "icanhazip.com"
 ```
 
-- **`pattern`**: A regular expression defining the domains that match this route.
+- **`patterns`**: A list of regular expressions defining the domains that match this route.
 - **`upstream`**: The SOCKS5 server address to forward matching traffic to.
 
 ### Command-line Options
