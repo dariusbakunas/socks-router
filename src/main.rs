@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use fast_socks5::server::{transfer, Socks5ServerProtocol};
-use fast_socks5::{client, ReplyError, Socks5Command, SocksError};
+use fast_socks5::{client, ReplyError, Socks5Command};
 use log::{error, info, warn};
 use regex::Regex;
 use socks_router::cli::Cli;
@@ -79,8 +79,13 @@ async fn serve_socks5(router: Arc<RwLock<Router>>, socket: tokio::net::TcpStream
         transfer(inner, client).await;
     } else {
         drop(router);
-        warn!("No route for {}", &target_addr);
-        proto.reply_error(&ReplyError::NetworkUnreachable).await?;
+        warn!("No route for {}, connecting directly", &target_addr);
+        // Establish a direct connection to the target
+        let target_socket = TcpListener::bind("0.0.0.0:0").await?.local_addr()?;
+        let inner = proto.reply_success(target_socket).await?;
+
+        let target_stream = tokio::net::TcpStream::connect((target_addr, target_port)).await?;
+        transfer(inner, target_stream).await;
     }
 
     Ok(())
