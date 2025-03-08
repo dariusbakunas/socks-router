@@ -14,3 +14,4 @@ log = "0.4.26"
 url = "2.5.4"
 serde = { version = "1.0.218", features = ["derive"] }
 serde_yaml = "0.9.34+deprecated"
+serde_regex = "1.1.0"

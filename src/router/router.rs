@@ -14,7 +14,7 @@ impl Router {
     pub fn route(&self, destination: &str) -> Option<String> {
         info!("Route {} to upstream", destination);
         for rule in self.config.routes() {
-            if rule.matches(destination).unwrap_or(false) {
+            if rule.matches(destination) {
                 return Some(rule.upstream().to_string());
             }
         }
