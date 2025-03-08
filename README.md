@@ -32,10 +32,13 @@ Create a routing configuration file (e.g., `example-routes.yaml`) to define your
 
 ```yaml
 routes:
-  - pattern: "^(?:[a-zA-Z0-9-]+\\.)*ifconfig\\.me$"
-    upstream: "127.0.0.1:9091"
-  - pattern: "^(?:[a-zA-Z0-9-]+\\.)*ipify\\.org$"
-    upstream: "127.0.0.1:9090"
+   - upstream: "127.0.0.1:9091"
+     patterns:
+        - "^(?:[a-zA-Z0-9-]+\\.)*ifconfig\\.me$"
+   - upstream: "127.0.0.1:9090"
+     patterns:
+        - "^(?:[a-zA-Z0-9-]+\\.)*ipify\\.org$"
+        - "icanhazip.com"
 ```
 
 - **`pattern`**: A regular expression defining the domains that match this route.
