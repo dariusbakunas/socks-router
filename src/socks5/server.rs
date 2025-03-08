@@ -1,8 +1,9 @@
+use crate::router::route_cache::RouteCache;
 use crate::router::router::Router;
 use fast_socks5::server::states::CommandRead;
 use fast_socks5::server::{transfer, Socks5ServerProtocol};
 use fast_socks5::{client, ReplyError, Socks5Command};
-use log::warn;
+use log::{debug, info, warn};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -15,6 +16,7 @@ fn extract_domain(url: &str) -> Option<String> {
 
 pub async fn serve_socks5(
     router: Arc<RwLock<Router>>,
+    cache: Arc<RouteCache>,
     socket: tokio::net::TcpStream,
 ) -> anyhow::Result<()> {
     let router = router.read().await;
@@ -29,11 +31,30 @@ pub async fn serve_socks5(
     }
 
     let (target_addr, target_port) = target_addr.into_string_and_port();
-    let domain = extract_domain(&target_addr);
+    let domain = extract_domain(&target_addr).unwrap_or(target_addr.clone());
 
-    if let Some(upstream) = router.route(domain.as_deref().unwrap_or(&target_addr)) {
+    let upstream = if let Some(cached_route) = cache.get(&domain).await {
+        debug!("Found cached route for {}: {}", &domain, &cached_route);
+        Some(cached_route)
+    } else {
+        // Cache miss: use router and store the result in the cache
+        let resolved_route = router.route(&domain);
+
+        if let Some(ref resolved_route) = resolved_route {
+            debug!(
+                "Resolved route for {} to {}, adding to cache",
+                &domain, &resolved_route
+            );
+            cache
+                .insert(domain.to_string(), resolved_route.to_string())
+                .await;
+        }
+
+        resolved_route
+    };
+
+    if let Some(upstream) = upstream {
         drop(router);
-
         handle_upstream_connection(proto, target_addr, target_port, &upstream).await?
     } else {
         drop(router);
