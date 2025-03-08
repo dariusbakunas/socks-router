@@ -3,57 +3,15 @@ use clap::Parser;
 use fast_socks5::server::{transfer, Socks5ServerProtocol};
 use fast_socks5::{client, ReplyError, Socks5Command};
 use log::{error, info, warn};
-use regex::Regex;
-use serde::Deserialize;
 use socks_router::cli::Cli;
-use std::fs;
+use socks_router::router::{read_routing_config, Router};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
 use url::Url;
-
-#[derive(Debug, Deserialize, Clone)]
-struct Route {
-    pattern: String,
-    upstream: String,
-}
-
-impl Route {
-    /// Matches a given input string against the route's pattern regex.
-    fn matches(&self, input: &str) -> Result<bool> {
-        let regex = Regex::new(&self.pattern)?;
-        Ok(regex.is_match(input))
-    }
-
-    fn upstream(&self) -> &str {
-        &self.upstream
-    }
-}
-
-#[derive(Debug, Deserialize, Clone)]
-struct RoutingConfig {
-    routes: Vec<Route>,
-}
-
-impl RoutingConfig {
-    pub fn routes(&self) -> &Vec<Route> {
-        &self.routes
-    }
-}
-
-fn read_routing_config(file_path: &PathBuf) -> Result<RoutingConfig> {
-    // Read the file content
-    let yaml_content = fs::read_to_string(file_path)?;
-
-    // Parse the YAML into the RoutingConfig struct
-    let config: RoutingConfig = serde_yaml::from_str(&yaml_content)?;
-
-    Ok(config)
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -62,33 +20,6 @@ async fn main() -> Result<()> {
     );
 
     spawn_socks_server().await
-}
-
-#[derive(Debug, Clone)]
-struct RoutingRule {
-    pattern: Regex,
-    upstream_addr: String, // Address of the upstream SOCKS5 server or SSH tunnel
-}
-
-#[derive(Debug, Clone)]
-struct Router {
-    config: RoutingConfig,
-}
-
-impl Router {
-    fn new(config: RoutingConfig) -> Self {
-        Router { config }
-    }
-
-    fn route(&self, destination: &str) -> Option<String> {
-        info!("Route {} to upstream", destination);
-        for rule in self.config.routes() {
-            if rule.matches(destination).unwrap_or(false) {
-                return Some(rule.upstream.clone());
-            }
-        }
-        None
-    }
 }
 
 async fn serve_socks5(router: Arc<RwLock<Router>>, socket: tokio::net::TcpStream) -> Result<()> {
