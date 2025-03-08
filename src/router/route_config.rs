@@ -1,7 +1,13 @@
-use crate::router::route::Route;
+use regex::Regex;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Route {
+    patterns: Vec<String>,
+    upstream: String,
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RoutingConfig {
@@ -22,4 +28,24 @@ pub fn read_routing_config(file_path: &PathBuf) -> anyhow::Result<RoutingConfig>
     let config: RoutingConfig = serde_yaml::from_str(&yaml_content)?;
 
     Ok(config)
+}
+
+impl Route {
+    /// Matches a given input string against the route's pattern regex.
+    pub fn matches(&self, input: &str) -> anyhow::Result<bool> {
+        for pattern in &self.patterns {
+            if let Ok(regex) = Regex::new(pattern) {
+                if regex.is_match(input) {
+                    return Ok(true);
+                }
+            } else {
+                return Err(anyhow::anyhow!("Invalid regex pattern: {}", pattern));
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn upstream(&self) -> &str {
+        &self.upstream
+    }
 }
