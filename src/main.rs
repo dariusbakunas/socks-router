@@ -4,14 +4,56 @@ use fast_socks5::server::{transfer, Socks5ServerProtocol};
 use fast_socks5::{client, ReplyError, Socks5Command};
 use log::{error, info, warn};
 use regex::Regex;
+use serde::Deserialize;
 use socks_router::cli::Cli;
+use std::fs;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task;
 use url::Url;
+
+#[derive(Debug, Deserialize, Clone)]
+struct Route {
+    pattern: String,
+    upstream: String,
+}
+
+impl Route {
+    /// Matches a given input string against the route's pattern regex.
+    fn matches(&self, input: &str) -> Result<bool> {
+        let regex = Regex::new(&self.pattern)?;
+        Ok(regex.is_match(input))
+    }
+
+    fn upstream(&self) -> &str {
+        &self.upstream
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct RoutingConfig {
+    routes: Vec<Route>,
+}
+
+impl RoutingConfig {
+    pub fn routes(&self) -> &Vec<Route> {
+        &self.routes
+    }
+}
+
+fn read_routing_config(file_path: &PathBuf) -> Result<RoutingConfig> {
+    // Read the file content
+    let yaml_content = fs::read_to_string(file_path)?;
+
+    // Parse the YAML into the RoutingConfig struct
+    let config: RoutingConfig = serde_yaml::from_str(&yaml_content)?;
+
+    Ok(config)
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,19 +72,19 @@ struct RoutingRule {
 
 #[derive(Debug, Clone)]
 struct Router {
-    rules: Vec<RoutingRule>,
+    config: RoutingConfig,
 }
 
 impl Router {
-    fn new(rules: Vec<RoutingRule>) -> Self {
-        Router { rules }
+    fn new(config: RoutingConfig) -> Self {
+        Router { config }
     }
 
     fn route(&self, destination: &str) -> Option<String> {
         info!("Route {} to upstream", destination);
-        for rule in &self.rules {
-            if rule.pattern.is_match(destination) {
-                return Some(rule.upstream_addr.clone());
+        for rule in self.config.routes() {
+            if rule.matches(destination).unwrap_or(false) {
+                return Some(rule.upstream.clone());
             }
         }
         None
@@ -104,16 +146,7 @@ async fn spawn_socks_server() -> Result<()> {
     let listener = TcpListener::bind(&cli.listen_addr).await?;
     info!("Listen for socks connections @ {}", &cli.listen_addr);
 
-    let routing_rules = vec![
-        RoutingRule {
-            pattern: Regex::new(r"^(?:[a-zA-Z0-9-]+\.)*ifconfig\.me$").unwrap(),
-            upstream_addr: "127.0.0.1:9090".into(),
-        },
-        RoutingRule {
-            pattern: Regex::new(r"^(?:[a-zA-Z0-9-]+\.)*ipify\.org$").unwrap(),
-            upstream_addr: "127.0.0.1:9091".into(),
-        },
-    ];
+    let routing_rules = read_routing_config(&cli.route_config)?;
 
     let router = Arc::new(RwLock::new(Router::new(routing_rules)));
 
