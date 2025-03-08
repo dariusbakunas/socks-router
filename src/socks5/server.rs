@@ -1,4 +1,4 @@
-use crate::router::Router;
+use crate::router::router::Router;
 use fast_socks5::server::states::CommandRead;
 use fast_socks5::server::{transfer, Socks5ServerProtocol};
 use fast_socks5::{client, ReplyError, Socks5Command};
@@ -33,6 +33,7 @@ pub async fn serve_socks5(
 
     if let Some(upstream) = router.route(domain.as_deref().unwrap_or(&target_addr)) {
         drop(router);
+
         handle_upstream_connection(proto, target_addr, target_port, &upstream).await?
     } else {
         drop(router);
