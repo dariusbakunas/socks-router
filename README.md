@@ -45,7 +45,8 @@ routes:
            - 10.0.0.0/24
 ```
 
-- **`patterns`**: A list of regular expressions defining the domains that match this route.
+- **`match.regex`**: A list of regular expressions defining the domains that match this route.
+- **`match.cidr`**: A list of IP CIDRs defining IP ranges that match this route.
 - **`upstream`**: The SOCKS5 server address to forward matching traffic to.
 
 ### Command-line Options
