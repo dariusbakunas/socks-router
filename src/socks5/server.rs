@@ -3,7 +3,7 @@ use crate::router::router::Router;
 use fast_socks5::server::states::CommandRead;
 use fast_socks5::server::{transfer, Socks5ServerProtocol};
 use fast_socks5::{client, ReplyError, Socks5Command};
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
