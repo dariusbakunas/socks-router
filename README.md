@@ -33,11 +33,12 @@ Create a routing configuration file (e.g., `example-routes.yaml`) to define your
 ```yaml
 routes:
    - upstream: "127.0.0.1:9091"
-     match:
+     command: "ssh -N -D9091 ubuntu@X.X.X.X"
+     matches:
         regex:
            - "^(?:[a-zA-Z0-9-]+\\.)*ifconfig\\.me$"
    - upstream: "127.0.0.1:9090"
-     match:
+     matches:
         regex:
            - "^(?:[a-zA-Z0-9-]+\\.)*ipify\\.org$"
            - "icanhazip.com"
@@ -45,9 +46,10 @@ routes:
            - 10.0.0.0/24
 ```
 
-- **`match.regex`**: A list of regular expressions defining the domains that match this route.
-- **`match.cidr`**: A list of IP CIDRs defining IP ranges that match this route.
+- **`matches.regex`**: A list of regular expressions defining the domains that match this route.
+- **`matches.cidr`**: A list of IP CIDRs defining IP ranges that match this route.
 - **`upstream`**: The SOCKS5 server address to forward matching traffic to.
+- **`command`**: Command to execute before establishing the tunnel (example: `ssh -N -D9091 ubuntu@X.X.X.X`)
 
 ### Command-line Options
 

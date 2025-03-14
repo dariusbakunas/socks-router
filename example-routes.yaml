@@ -1,10 +1,11 @@
 routes:
   - upstream: "127.0.0.1:9091"
-    match:
+    command: "ssh -N -D9091 ubuntu@34.196.56.211"
+    matches:
       regex:
         - "^(?:[a-zA-Z0-9-]+\\.)*ifconfig\\.me$"
   - upstream: "127.0.0.1:9090"
-    match:
+    matches:
       regex:
         - "^(?:[a-zA-Z0-9-]+\\.)*ipify\\.org$"
         - "icanhazip.com"

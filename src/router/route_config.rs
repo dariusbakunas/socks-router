@@ -11,7 +11,7 @@ use std::str::FromStr;
 pub struct Matches {
     #[serde(with = "serde_regex")]
     regex: Option<Vec<Regex>>,
-    #[serde(deserialize_with = "deserialize_ipnetwork_vec")]
+    #[serde(default, deserialize_with = "deserialize_ipnetwork_vec")]
     cidr: Option<Vec<IpNetwork>>,
 }
 
@@ -33,6 +33,7 @@ where
 pub struct Route {
     matches: Matches,
     upstream: String,
+    command: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -79,6 +80,10 @@ impl Route {
     pub fn upstream(&self) -> &str {
         &self.upstream
     }
+
+    pub fn command(&self) -> Option<&str> {
+        self.command.as_deref()
+    }
 }
 
 #[cfg(test)]
@@ -95,6 +100,7 @@ mod tests {
                 cidr: None,
             },
             upstream: "http://example.com".to_string(),
+            command: None,
         };
 
         assert!(route.matches("test123"));
@@ -109,6 +115,7 @@ mod tests {
                 cidr: Some(vec![IpNetwork::from_str("192.168.1.0/24").unwrap()]),
             },
             upstream: "http://example.com".to_string(),
+            command: None,
         };
 
         assert!(route.matches("192.168.1.42"));
@@ -124,6 +131,7 @@ mod tests {
                 cidr: Some(vec![IpNetwork::from_str("192.168.1.0/24").unwrap()]),
             },
             upstream: "http://example.com".to_string(),
+            command: None,
         };
 
         assert!(route.matches("test123")); // Matches regex
@@ -140,6 +148,7 @@ mod tests {
                 cidr: None,
             },
             upstream: "http://example.com".to_string(),
+            command: None,
         };
 
         assert!(!route.matches("anything"));
@@ -154,6 +163,7 @@ mod tests {
                 cidr: Some(vec![IpNetwork::from_str("10.0.0.0/8").unwrap()]),
             },
             upstream: "http://example.com".to_string(),
+            command: None,
         };
 
         assert!(!route.matches("not-an-ip")); // Invalid IP address should not match

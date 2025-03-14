@@ -1,4 +1,4 @@
-use crate::router::route_config::RoutingConfig;
+use crate::router::route_config::{Route, RoutingConfig};
 use log::info;
 
 #[derive(Debug, Clone)]
@@ -11,11 +11,11 @@ impl Router {
         Router { config }
     }
 
-    pub fn route(&self, destination: &str) -> Option<String> {
+    pub fn route(&self, destination: &str) -> Option<Route> {
         info!("Route {} to upstream", destination);
         for rule in self.config.routes() {
             if rule.matches(destination) {
-                return Some(rule.upstream().to_string());
+                return Some(rule.clone());
             }
         }
         None
