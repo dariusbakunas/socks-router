@@ -2,7 +2,7 @@ use crate::router::route_cache::RouteCache;
 use crate::router::route_config::{read_routing_config, Route, RoutingConfig};
 use anyhow::Context;
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
