@@ -7,6 +7,7 @@ Socks Router is a customizable, asynchronous SOCKS5 proxy server with route-base
 - **Custom Routing Rules**: Define rules in a YAML file to route traffic based on domain patterns.
 - **Asynchronous Performance**: Built with `tokio` for high-performance network handling.
 - **Flexible Upstream Proxying**: Route traffic to specific upstream SOCKS5 servers or fallback to direct connections for unmatched routes.
+- **Automatic configuration reloading**: Changes to routing configuration are automatically reloaded during runtime
 
 ## Installation
 
