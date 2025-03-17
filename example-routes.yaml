@@ -5,6 +5,7 @@ routes:
       regex:
         - "^(?:[a-zA-Z0-9-]+\\.)*ifconfig\\.me$"
   - upstream: "127.0.0.1:9090"
+    command: "ssh -N -D9090 darius@plex"
     matches:
       regex:
         - "^(?:[a-zA-Z0-9-]+\\.)*ipify\\.org$"
