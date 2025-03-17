@@ -1,5 +1,4 @@
 use crate::command::CommandProcessTracker;
-use crate::router::route_cache::RouteCache;
 use crate::router::router::Router;
 use fast_socks5::server::states::CommandRead;
 use fast_socks5::server::{transfer, Socks5ServerProtocol};
@@ -10,7 +9,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
-use tokio::sync::RwLock;
 use tokio::time::sleep;
 use url::Url;
 
@@ -23,12 +21,10 @@ fn extract_domain(url: &str) -> Option<String> {
 }
 
 pub async fn serve_socks5(
-    router: Arc<RwLock<Router>>,
-    cache: Arc<RouteCache>,
+    router: Arc<Router>,
     command_tracker: Arc<CommandProcessTracker>,
     socket: tokio::net::TcpStream,
 ) -> anyhow::Result<()> {
-    let router = router.read().await;
     let (proto, cmd, target_addr) = Socks5ServerProtocol::accept_no_auth(socket)
         .await?
         .read_command()
@@ -42,12 +38,12 @@ pub async fn serve_socks5(
     let (target_addr, target_port) = target_addr.into_string_and_port();
     let domain = extract_domain(&target_addr).unwrap_or(target_addr.clone());
 
-    let upstream = if let Some(cached_route) = cache.get(&domain).await {
+    let upstream = if let Some(cached_route) = router.get_from_cache(&domain).await {
         debug!("Found cached route for {}: {}", &domain, &cached_route);
         Some(cached_route)
     } else {
         // Cache miss: use router and store the result in the cache
-        let resolved_route = router.route(&domain);
+        let resolved_route = router.route(&domain).await;
 
         if let Some(ref resolved_route) = resolved_route {
             debug!(
@@ -61,8 +57,8 @@ pub async fn serve_socks5(
                 execute_command(command_tracker.clone(), command).await?;
             }
 
-            cache
-                .insert(domain.to_string(), resolved_route.upstream().to_string())
+            router
+                .add_to_cache(domain.to_string(), resolved_route.upstream().to_string())
                 .await;
         }
 

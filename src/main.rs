@@ -4,14 +4,13 @@ use log::{debug, error, info};
 use socks_router::cli::Cli;
 use socks_router::command::CommandProcessTracker;
 use socks_router::router::route_cache::RouteCache;
-use socks_router::router::route_config::read_routing_config;
 use socks_router::router::router::Router;
 use socks_router::socks5::server::serve_socks5;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::watch;
 use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::{signal, time};
@@ -30,14 +29,24 @@ async fn spawn_socks_server() -> Result<()> {
     let listener = TcpListener::bind(&cli.listen_addr).await?;
     info!("Listen for socks connections @ {}", &cli.listen_addr);
 
-    let routing_rules = read_routing_config(&cli.route_config)?;
-    let router = Arc::new(RwLock::new(Router::new(routing_rules)));
-    let route_cache = Arc::new(RouteCache::new());
+    let router = Arc::new(Router::new(&cli.route_config).await?);
+
+    let router_clone = Arc::clone(&router);
+
     let command_tracker = Arc::new(CommandProcessTracker::new());
 
     let cleanup_task = spawn_cleanup_tracker(command_tracker.clone());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let config_rx = shutdown_rx.clone();
+    let tcp_handler_rx = shutdown_rx.clone();
+
+    let config_task = tokio::spawn(async move {
+        if let Err(e) = router_clone.start_config_watcher(config_rx).await {
+            error!("Failed to start config watcher: {:?}", e);
+        }
+    });
 
     // Spawn the shutdown signal handler
     let shutdown_task = tokio::spawn(handle_shutdown_signal(
@@ -45,15 +54,9 @@ async fn spawn_socks_server() -> Result<()> {
         command_tracker.clone(),
     ));
 
-    handle_tcp_connections(
-        listener,
-        router,
-        route_cache,
-        command_tracker,
-        shutdown_rx.clone(),
-    )
-    .await;
+    handle_tcp_connections(listener, router, command_tracker, tcp_handler_rx).await;
     cleanup_task.abort();
+    config_task.await?;
     shutdown_task.await?;
 
     Ok(())
@@ -101,15 +104,14 @@ where
 
 async fn handle_tcp_connections(
     listener: TcpListener,
-    router: Arc<RwLock<Router>>,
-    cache: Arc<RouteCache>,
+    router: Arc<Router>,
     command_tracker: Arc<CommandProcessTracker>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     loop {
         tokio::select! {
             Ok((socket, _client_addr)) = listener.accept() => {
-                spawn_and_log_error(serve_socks5(router.clone(), cache.clone(), command_tracker.clone(), socket));
+                spawn_and_log_error(serve_socks5(router.clone(), command_tracker.clone(), socket));
             }
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
