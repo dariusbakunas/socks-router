@@ -161,6 +161,14 @@
         }
       }
     },
+    "darwin.apple_sdk.frameworks.CoreFoundation": {
+      "resolved": "github:NixOS/nixpkgs/75a52265bda7fd25e06e3a67dee3f0354e73243c#darwin.apple_sdk.frameworks.CoreFoundation",
+      "source": "nixpkg"
+    },
+    "darwin.apple_sdk.frameworks.CoreServices": {
+      "resolved": "github:NixOS/nixpkgs/75a52265bda7fd25e06e3a67dee3f0354e73243c#darwin.apple_sdk.frameworks.CoreServices",
+      "source": "nixpkg"
+    },
     "go@latest": {
       "last_modified": "2025-02-12T00:10:52Z",
       "resolved": "github:NixOS/nixpkgs/83a2581c81ff5b06f7c1a4e7cc736a455dfcf7b4#go_1_24",

@@ -14,7 +14,13 @@
     },
     "pkg-config": "latest",
     "goreleaser": "latest",
-    "zig":        "latest"
+    "zig":        "latest",
+    "darwin.apple_sdk.frameworks.CoreServices": {
+      "platforms": ["x86_64-darwin", "aarch64-darwin"]
+    },
+    "darwin.apple_sdk.frameworks.CoreFoundation": {
+      "platforms": ["x86_64-darwin", "aarch64-darwin"]
+    }
   },
   "env": {
     "GOPATH": "$HOME/go/",
