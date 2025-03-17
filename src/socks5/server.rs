@@ -15,7 +15,7 @@ use tokio::time::sleep;
 use url::Url;
 
 // Configurable maximum duration to wait for the port to open
-const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10); // e.g., maximum 10 seconds
+const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PORT_POLL_INTERVAL: Duration = Duration::from_millis(250); // Check every 250 ms
 
 fn extract_domain(url: &str) -> Option<String> {
