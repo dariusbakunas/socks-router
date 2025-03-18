@@ -56,6 +56,7 @@ routes:
 
 - `--listen-addr <addr>`: Address and port on which the SOCKS proxy listens (default: `127.0.0.1:1080`).
 - `--route-config <file>`: Path to the YAML file containing the routing rules.
+- `--daemon`: (Unix Only) Run it as a daemon process
 
 ## How It Works
 
