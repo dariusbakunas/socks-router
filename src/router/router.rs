@@ -45,7 +45,7 @@ impl Router {
                         let _ = tx.send(event); // Notify via the channel
                     }
                 },
-                Config::default(),
+                Config::default().with_compare_contents(true),
             ) {
                 Ok(w) => w,
                 Err(e) => {
