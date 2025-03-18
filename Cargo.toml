@@ -19,5 +19,8 @@ regex = "1.11.1"
 time = "0.3.39"
 notify = "8.0.0"
 
+[target.'cfg(unix)'.dependencies]
+daemonize = "0.5.0"
+
 [build-dependencies]
 chrono = "0.4.39"

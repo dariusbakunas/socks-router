@@ -29,6 +29,7 @@
   "shell": {
     "init_hook": [
       "export \"GOROOT=$(go env GOROOT)\"",
+      "export \"SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk\"",
       "projectDir=$(dirname $(readlink -f \"$0\"))",
       "rustupHomeDir=\"$projectDir\"/.rustup",
       "mkdir -p $rustupHomeDir",
