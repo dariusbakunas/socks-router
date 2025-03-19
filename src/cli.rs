@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version = env!("APP_VERSION"), about, long_about = None)]

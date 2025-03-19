@@ -13,9 +13,11 @@ use anyhow::Result;
 use clap::Parser;
 use socks_router::cli::Cli;
 use socks_router::socks5::server::spawn_socks_server;
+use socks_router::stats::{ConnectionMessage, ConnectionStats};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::signal;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch, Mutex};
 
 #[cfg(unix)]
 fn get_temp_file_path(file_name: &str) -> PathBuf {
@@ -63,12 +65,30 @@ async fn tokio_main(cli: Cli) -> Result<()> {
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
+    let (stx, mut srx) = mpsc::channel::<ConnectionMessage>(100);
+
+    let stats = Arc::new(Mutex::new(ConnectionStats::new()));
+
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let shutdown_task = tokio::spawn(handle_shutdown_signal(shutdown_tx.clone()));
 
-    spawn_socks_server(&cli.listen_addr, &cli.route_config, shutdown_rx).await?;
+    let stats_clone = Arc::clone(&stats);
+    let stats_task = tokio::spawn(async move {
+        while let Some(message) = srx.recv().await {
+            let mut stats = stats_clone.lock().await;
+            stats.handle_message(message);
+        }
+    });
 
+    let stats_tx = stx.clone();
+
+    spawn_socks_server(&cli.listen_addr, &cli.route_config, shutdown_rx, stats_tx).await?;
+
+    let stats = stats.lock().await;
+    stats.print_stats();
+
+    stats_task.abort();
     shutdown_task.await?;
 
     Ok(())

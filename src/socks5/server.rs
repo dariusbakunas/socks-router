@@ -1,7 +1,9 @@
 use crate::command::CommandProcessTracker;
 use crate::router::router::Router;
+use crate::stats::ConnectionMessage;
+use anyhow::bail;
 use fast_socks5::server::states::CommandRead;
-use fast_socks5::server::{transfer, Socks5ServerProtocol};
+use fast_socks5::server::Socks5ServerProtocol;
 use fast_socks5::{client, ReplyError, Socks5Command};
 use log::{debug, error, info, warn};
 use std::future::Future;
@@ -9,6 +11,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 use tokio::sync::watch;
@@ -41,6 +44,7 @@ pub async fn spawn_socks_server(
     listen_addr: &str,
     route_config: &PathBuf,
     shutdown_rx: watch::Receiver<bool>,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(listen_addr).await?;
     info!("Listen for socks connections @ {}", listen_addr);
@@ -61,7 +65,7 @@ pub async fn spawn_socks_server(
         }
     });
 
-    handle_tcp_connections(listener, router, command_tracker, tcp_handler_rx).await;
+    handle_tcp_connections(listener, router, command_tracker, tcp_handler_rx, stats_tx).await;
     cleanup_task.abort();
     config_task.await?;
 
@@ -84,11 +88,12 @@ async fn handle_tcp_connections(
     router: Arc<Router>,
     command_tracker: Arc<CommandProcessTracker>,
     mut shutdown_rx: watch::Receiver<bool>,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) {
     loop {
         tokio::select! {
             Ok((socket, _client_addr)) = listener.accept() => {
-                spawn_and_log_error(serve_socks5(router.clone(), command_tracker.clone(), socket));
+                spawn_and_log_error(serve_socks5(router.clone(), command_tracker.clone(), socket, stats_tx.clone()));
             }
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
@@ -105,6 +110,7 @@ pub async fn serve_socks5(
     router: Arc<Router>,
     command_tracker: Arc<CommandProcessTracker>,
     socket: tokio::net::TcpStream,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) -> anyhow::Result<()> {
     let (proto, cmd, target_addr) = Socks5ServerProtocol::accept_no_auth(socket)
         .await?
@@ -146,13 +152,20 @@ pub async fn serve_socks5(
         resolved_route.map(|r| r.upstream().to_string())
     };
 
+    stats_tx
+        .send(ConnectionMessage::ConnectionStarted {
+            host: domain.clone(),
+            port: target_port,
+        })
+        .await?;
+
     if let Some(upstream) = upstream {
         drop(router);
-        handle_upstream_connection(proto, target_addr, target_port, &upstream).await?
+        handle_upstream_connection(proto, &target_addr, target_port, &upstream, stats_tx).await?
     } else {
         drop(router);
-        warn!("No route for {}, connecting directly", &target_addr);
-        handle_direct_connection(proto, target_addr, target_port).await?
+        warn!("No route for {}, connecxting directly", &target_addr);
+        handle_direct_connection(proto, &target_addr, target_port, stats_tx).await?
     }
 
     Ok(())
@@ -184,9 +197,10 @@ async fn wait_for_port_open(target_addr: &str, target_port: u16) -> anyhow::Resu
 
 async fn handle_upstream_connection(
     proto: Socks5ServerProtocol<TcpStream, CommandRead>,
-    target_addr: String,
+    target_addr: &str,
     target_port: u16,
     upstream: &str,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) -> anyhow::Result<()> {
     let socket_addr: SocketAddr = upstream.parse()?;
     let ip = socket_addr.ip().to_string();
@@ -197,26 +211,81 @@ async fn handle_upstream_connection(
 
     let mut config = client::Config::default();
     config.set_skip_auth(false);
-    let client = client::Socks5Stream::connect(upstream, target_addr, target_port, config).await?;
+    let client =
+        client::Socks5Stream::connect(upstream, target_addr.to_string(), target_port, config)
+            .await?;
 
     let inner = proto
         .reply_success(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0))
         .await?;
 
-    transfer(inner, client).await;
+    transfer_data(inner, client, &target_addr, target_port, stats_tx.clone()).await?;
+
+    Ok(())
+}
+
+async fn transfer_data<I, O>(
+    mut inbound: I,
+    mut outbound: O,
+    ip: &str,
+    port: u16,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
+) -> anyhow::Result<()>
+where
+    I: AsyncRead + AsyncWrite + Unpin,
+    O: AsyncRead + AsyncWrite + Unpin,
+{
+    match tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await {
+        Ok(res) => {
+            debug!("Transfer closed ({}, {})", res.0, res.1);
+
+            stats_tx
+                .send(ConnectionMessage::DataTransferred {
+                    host: ip.to_string(),
+                    port,
+                    bytes_sent: res.0,
+                    bytes_received: res.1,
+                })
+                .await?;
+
+            stats_tx
+                .send(ConnectionMessage::ConnectionEnded {
+                    host: ip.to_string(),
+                    port,
+                })
+                .await?;
+        }
+        Err(err) => {
+            stats_tx
+                .send(ConnectionMessage::ConnectionEnded {
+                    host: ip.to_string(),
+                    port,
+                })
+                .await?;
+            bail!("Transfer error: {}", err);
+        }
+    };
     Ok(())
 }
 
 async fn handle_direct_connection(
     proto: Socks5ServerProtocol<TcpStream, CommandRead>,
-    target_addr: String,
+    target_addr: &str,
     target_port: u16,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) -> anyhow::Result<()> {
     let target_socket = TcpListener::bind("0.0.0.0:0").await?.local_addr()?;
     let inner = proto.reply_success(target_socket).await?;
 
     let target_stream = tokio::net::TcpStream::connect((target_addr, target_port)).await?;
-    transfer(inner, target_stream).await;
+    transfer_data(
+        inner,
+        target_stream,
+        target_addr,
+        target_port,
+        stats_tx.clone(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -244,7 +313,6 @@ async fn execute_command(tracker: Arc<CommandProcessTracker>, command: &str) -> 
         child.id().unwrap_or(0)
     );
 
-    // Track the process
     tracker.add_process(command.to_string(), child).await;
 
     Ok(())
