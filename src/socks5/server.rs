@@ -6,15 +6,16 @@ use fast_socks5::server::states::CommandRead;
 use fast_socks5::server::Socks5ServerProtocol;
 use fast_socks5::{client, ReplyError, Socks5Command};
 use log::{debug, error, info, warn};
+use std::collections::HashSet;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
-use tokio::sync::watch;
+use tokio::sync::{watch, Mutex};
 use tokio::task;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -73,17 +74,6 @@ pub async fn spawn_socks_server(
     Ok(())
 }
 
-fn spawn_and_log_error<F>(fut: F) -> task::JoinHandle<()>
-where
-    F: Future<Output = anyhow::Result<()>> + Send + 'static,
-{
-    task::spawn(async move {
-        if let Err(err) = &fut.await {
-            error!("{:#}", &err)
-        }
-    })
-}
-
 async fn handle_tcp_connections(
     listener: TcpListener,
     router: Arc<Router>,
@@ -91,14 +81,39 @@ async fn handle_tcp_connections(
     mut shutdown_rx: watch::Receiver<bool>,
     stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) {
+    let active_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> =
+        Arc::new(Mutex::new(Vec::new()));
+
     loop {
         tokio::select! {
             Ok((socket, _client_addr)) = listener.accept() => {
-                spawn_and_log_error(serve_socks5(router.clone(), command_tracker.clone(), socket, stats_tx.clone()));
+                let active_tasks_clone = active_tasks.clone();
+
+                let router = router.clone();
+                let command_tracker = command_tracker.clone();
+                let stats_tx = stats_tx.clone();
+
+                let task_handle = tokio::spawn(async move {
+                    if let Err(err) = serve_socks5(router, command_tracker, socket, stats_tx).await {
+                        error!("Error in connection: {}", &err);
+                    }
+
+                    let mut tasks = active_tasks_clone.lock().await;
+                    tasks.retain(|handle| !handle.is_finished());
+                });
+
+                active_tasks.lock().await.push(task_handle);
             }
             _ = shutdown_rx.changed() => {
                 if *shutdown_rx.borrow() {
                     info!("Shutdown signal received in TCP handler. Stopping...");
+
+                    let tasks = active_tasks.lock().await.drain(..).collect::<Vec<_>>();
+                    for task in tasks {
+                        task.abort(); // Abort task
+                        let _ = task.await; // Wait for cleanup
+                    }
+
                     command_tracker.stop_all_processes().await;
                     break;
                 }
@@ -242,45 +257,53 @@ where
     )
     .await;
 
+    let inbound_cleanup = inbound.shutdown().await;
+    let outbound_cleanup = outbound.shutdown().await;
+
     match result {
         Ok(Ok(res)) => {
             debug!("Transfer closed ({}, {})", res.0, res.1);
 
-            stats_tx
-                .send(ConnectionMessage::DataTransferred {
-                    host: ip.to_string(),
-                    port,
-                    bytes_sent: res.0,
-                    bytes_received: res.1,
-                })
-                .await?;
+            if let Err(err) = stats_tx.try_send(ConnectionMessage::DataTransferred {
+                host: ip.to_string(),
+                port,
+                bytes_sent: res.0,
+                bytes_received: res.1,
+            }) {
+                warn!("Failed to send data transfer stats: {}", err);
+            }
 
-            stats_tx
-                .send(ConnectionMessage::ConnectionEnded {
-                    host: ip.to_string(),
-                    port,
-                })
-                .await?;
+            if let Err(err) = stats_tx.try_send(ConnectionMessage::ConnectionEnded {
+                host: ip.to_string(),
+                port,
+            }) {
+                warn!("Failed to send connection stats: {}", err);
+            }
         }
         Ok(Err(err)) => {
-            stats_tx
-                .send(ConnectionMessage::ConnectionEnded {
-                    host: ip.to_string(),
-                    port,
-                })
-                .await?;
+            if let Err(err) = stats_tx.try_send(ConnectionMessage::ConnectionEnded {
+                host: ip.to_string(),
+                port,
+            }) {
+                warn!("Failed to send connection stats: {}", err);
+            }
             bail!("Transfer error: {}, ip: {}, port: {}", err, ip, port);
         }
         Err(_) => {
-            stats_tx
-                .send(ConnectionMessage::ConnectionEnded {
-                    host: ip.to_string(),
-                    port,
-                })
-                .await?;
+            if let Err(err) = stats_tx.try_send(ConnectionMessage::ConnectionEnded {
+                host: ip.to_string(),
+                port,
+            }) {
+                warn!("Failed to send connection stats: {}", err);
+            }
             bail!("Transfer timeout, ip: {}, port: {}", ip, port);
         }
     };
+
+    if inbound_cleanup.is_err() || outbound_cleanup.is_err() {
+        warn!("Failed to properly close sockets after transfer.");
+    }
+
     Ok(())
 }
 
