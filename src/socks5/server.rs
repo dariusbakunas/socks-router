@@ -11,7 +11,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 use tokio::sync::watch;
@@ -23,6 +23,7 @@ use url::Url;
 // Configurable maximum duration to wait for the port to open
 const PORT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PORT_POLL_INTERVAL: Duration = Duration::from_millis(250); // Check every 250 ms
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn extract_domain(url: &str) -> Option<String> {
     Url::parse(url).ok()?.domain().map(|d| d.to_string())
@@ -164,7 +165,7 @@ pub async fn serve_socks5(
         handle_upstream_connection(proto, &target_addr, target_port, &upstream, stats_tx).await?
     } else {
         drop(router);
-        warn!("No route for {}, connecxting directly", &target_addr);
+        warn!("No route for {}, connecting directly", &target_addr);
         handle_direct_connection(proto, &target_addr, target_port, stats_tx).await?
     }
 
@@ -235,8 +236,14 @@ where
     I: AsyncRead + AsyncWrite + Unpin,
     O: AsyncRead + AsyncWrite + Unpin,
 {
-    match tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await {
-        Ok(res) => {
+    let result = tokio::time::timeout(
+        TRANSFER_TIMEOUT,
+        tokio::io::copy_bidirectional(&mut inbound, &mut outbound),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(res)) => {
             debug!("Transfer closed ({}, {})", res.0, res.1);
 
             stats_tx
@@ -255,14 +262,23 @@ where
                 })
                 .await?;
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             stats_tx
                 .send(ConnectionMessage::ConnectionEnded {
                     host: ip.to_string(),
                     port,
                 })
                 .await?;
-            bail!("Transfer error: {}", err);
+            bail!("Transfer error: {}, ip: {}, port: {}", err, ip, port);
+        }
+        Err(_) => {
+            stats_tx
+                .send(ConnectionMessage::ConnectionEnded {
+                    host: ip.to_string(),
+                    port,
+                })
+                .await?;
+            bail!("Transfer timeout, ip: {}, port: {}", ip, port);
         }
     };
     Ok(())
