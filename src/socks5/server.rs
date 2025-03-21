@@ -168,12 +168,12 @@ pub async fn serve_socks5(
         resolved_route.map(|r| r.upstream().to_string())
     };
 
-    stats_tx
-        .send(ConnectionMessage::ConnectionStarted {
-            host: domain.clone(),
-            port: target_port,
-        })
-        .await?;
+    if let Err(err) = stats_tx.try_send(ConnectionMessage::ConnectionStarted {
+        host: domain.clone(),
+        port: target_port,
+    }) {
+        warn!("Failed to send connection stats: {}", err);
+    };
 
     if let Some(upstream) = upstream {
         drop(router);
@@ -325,7 +325,7 @@ async fn handle_direct_connection(
     target_port: u16,
     stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) -> anyhow::Result<()> {
-    let target_socket = TcpListener::bind("0.0.0.0:0").await?.local_addr()?;
+    let target_socket = TcpListener::bind("127.0.0.1:0").await?.local_addr()?;
     let inner = proto.reply_success(target_socket).await?;
 
     let target_stream = tokio::net::TcpStream::connect((target_addr, target_port)).await?;
