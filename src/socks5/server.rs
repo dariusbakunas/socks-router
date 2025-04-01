@@ -1,5 +1,6 @@
 use crate::command::CommandProcessTracker;
 use crate::router::router::Router;
+use crate::socks5::udp::{handle_direct_udp_connection, handle_upstream_udp_connection};
 use crate::stats::ConnectionMessage;
 use anyhow::bail;
 use fast_socks5::server::states::CommandRead;
@@ -133,7 +134,7 @@ pub async fn serve_socks5(
         .read_command()
         .await?;
 
-    if cmd != Socks5Command::TCPConnect {
+    if cmd != Socks5Command::TCPConnect && cmd != Socks5Command::UDPAssociate {
         proto.reply_error(&ReplyError::CommandNotSupported).await?;
         return Err(ReplyError::CommandNotSupported.into());
     }
@@ -177,11 +178,29 @@ pub async fn serve_socks5(
 
     if let Some(upstream) = upstream {
         drop(router);
-        handle_upstream_connection(proto, &target_addr, target_port, &upstream, stats_tx).await?
+
+        if cmd == Socks5Command::UDPAssociate {
+            handle_upstream_udp_connection(
+                proto,
+                &target_addr,
+                target_port,
+                &upstream,
+                stats_tx.clone(),
+            )
+            .await?
+        } else {
+            handle_upstream_connection(proto, &target_addr, target_port, &upstream, stats_tx)
+                .await?
+        }
     } else {
         drop(router);
         warn!("No route for {}, connecting directly", &target_addr);
-        handle_direct_connection(proto, &target_addr, target_port, stats_tx).await?
+
+        if cmd == Socks5Command::UDPAssociate {
+            handle_direct_udp_connection(proto, &target_addr, target_port, stats_tx).await?
+        } else {
+            handle_direct_connection(proto, &target_addr, target_port, stats_tx).await?
+        }
     }
 
     Ok(())
