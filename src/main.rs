@@ -83,7 +83,14 @@ async fn tokio_main(cli: Cli) -> Result<()> {
 
     let stats_tx = stx.clone();
 
-    spawn_socks_server(&cli.listen_addr, &cli.route_config, shutdown_rx, stats_tx).await?;
+    spawn_socks_server(
+        &cli.listen_addr,
+        &cli.http_proxy,
+        &cli.route_config,
+        shutdown_rx,
+        stats_tx,
+    )
+    .await?;
 
     let stats = stats.lock().await;
     stats.print_stats();

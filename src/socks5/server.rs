@@ -1,5 +1,6 @@
 use crate::command::CommandProcessTracker;
 use crate::router::router::Router;
+use crate::socks5::http::serve_http;
 use crate::socks5::udp::{handle_direct_udp_connection, handle_upstream_udp_connection};
 use crate::stats::ConnectionMessage;
 use anyhow::bail;
@@ -44,13 +45,18 @@ fn spawn_cleanup_tracker(tracker: Arc<CommandProcessTracker>) -> JoinHandle<()> 
 }
 
 pub async fn spawn_socks_server(
-    listen_addr: &str,
+    socks_listen_addr: &str,
+    http_listen_addr: &str,
     route_config: &PathBuf,
-    shutdown_rx: watch::Receiver<bool>,
+    mut shutdown_rx: watch::Receiver<bool>,
     stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
 ) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(listen_addr).await?;
-    info!("Listen for socks connections @ {}", listen_addr);
+    let socks_listener = TcpListener::bind(socks_listen_addr).await?;
+    let http_listener = TcpListener::bind(http_listen_addr).await?;
+    info!(
+        "Socks5 server listening on {}, HTTP proxy server listening on {}",
+        socks_listen_addr, http_listen_addr
+    );
 
     let router = Arc::new(Router::new(route_config).await?);
 
@@ -68,11 +74,100 @@ pub async fn spawn_socks_server(
         }
     });
 
-    handle_tcp_connections(listener, router, command_tracker, tcp_handler_rx, stats_tx).await;
+    let mut socks_task = tokio::spawn(handle_tcp_connections(
+        socks_listener,
+        router.clone(),
+        command_tracker.clone(),
+        tcp_handler_rx.clone(),
+        stats_tx.clone(),
+    ));
+
+    let mut http_task = tokio::spawn(handle_http_connections(
+        http_listener,
+        router.clone(),
+        shutdown_rx.clone(),
+        command_tracker.clone(),
+        stats_tx.clone(),
+    ));
+
+    tokio::select! {
+        _ = shutdown_rx.changed() => {
+            info!("Shutdown signal received. Stopping SOCKS5 and HTTP tasks...");
+        }
+        result = &mut socks_task => {
+            if let Err(err) = result {
+                error!("SOCKS5 task ended with an error: {:?}", err);
+            }
+        }
+        result = &mut http_task => {
+            if let Err(err) = result {
+                error!("HTTP task ended with an error: {:?}", err);
+            }
+        }
+    }
+
+    if !socks_task.is_finished() {
+        socks_task.abort(); // Abort the SOCKS5 task
+    }
+    if !http_task.is_finished() {
+        http_task.abort(); // Abort the HTTP task
+    }
+
     cleanup_task.abort();
     config_task.await?;
 
     Ok(())
+}
+
+async fn handle_http_connections(
+    listener: TcpListener,
+    router: Arc<Router>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    command_tracker: Arc<CommandProcessTracker>,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
+) {
+    let active_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> =
+        Arc::new(Mutex::new(Vec::new()));
+
+    loop {
+        tokio::select! {
+            Ok((socket, client_addr)) = listener.accept() => {
+                let active_tasks_clone = active_tasks.clone();
+                let router_clone = router.clone();
+                let command_tracker_clone = command_tracker.clone();
+                let stats_tx_clone = stats_tx.clone();
+
+                let task_handle = tokio::spawn(async move {
+                    if let Err(err) = serve_http(
+                        router_clone,
+                        command_tracker_clone,
+                        socket,
+                        stats_tx_clone,
+                        client_addr
+                    ).await {
+                        error!("Error handling HTTP connection: {:?}", err);
+                    }
+
+                    let mut tasks = active_tasks_clone.lock().await;
+                    tasks.retain(|handle| !handle.is_finished());
+                });
+
+                active_tasks.lock().await.push(task_handle);
+            }
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    info!("Shutdown signal received in HTTP handler. Stopping...");
+
+                    let tasks = active_tasks.lock().await.drain(..).collect::<Vec<_>>();
+                    for task in tasks {
+                        task.abort(); // Abort task
+                        let _ = task.await; // Wait for cleanup
+                    }
+                    break;
+                }
+            }
+        }
+    }
 }
 
 async fn handle_tcp_connections(
@@ -206,7 +301,7 @@ pub async fn serve_socks5(
     Ok(())
 }
 
-async fn wait_for_port_open(target_addr: &str, target_port: u16) -> anyhow::Result<()> {
+pub(crate) async fn wait_for_port_open(target_addr: &str, target_port: u16) -> anyhow::Result<()> {
     let target = format!("{}:{}", target_addr, target_port);
     let start = tokio::time::Instant::now();
 
@@ -359,7 +454,10 @@ async fn handle_direct_connection(
     Ok(())
 }
 
-async fn execute_command(tracker: Arc<CommandProcessTracker>, command: &str) -> anyhow::Result<()> {
+pub(crate) async fn execute_command(
+    tracker: Arc<CommandProcessTracker>,
+    command: &str,
+) -> anyhow::Result<()> {
     if tracker.is_running(command).await {
         debug!("Command `{}` is already running, skipping.", command);
         return Ok(());

@@ -16,6 +16,13 @@ pub struct Cli {
     )]
     pub listen_addr: String,
 
+    #[arg(
+        long,
+        default_value = "127.0.0.1:8080",
+        help = "Listen address for the HTTP proxy."
+    )]
+    pub http_proxy: String,
+
     #[arg(short = 'r', long, help = "Path to the routing configuration file.")]
     pub route_config: PathBuf,
 }
