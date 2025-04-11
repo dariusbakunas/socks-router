@@ -11,7 +11,6 @@ use fast_socks5::{client, ReplyError, Socks5Command};
 use log::{debug, error, info, warn};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Mutex};
 use url::Url;

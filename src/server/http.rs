@@ -112,7 +112,7 @@ pub async fn serve_http(
                 .await;
 
             // Route exists: Use the upstream SOCKS5 proxy to connect
-            let mut socks_client = fast_socks5::client::Socks5Stream::connect(
+            let socks_client = fast_socks5::client::Socks5Stream::connect(
                 &resolved_route.upstream().to_string(),
                 target_host.clone(),
                 target_port,
