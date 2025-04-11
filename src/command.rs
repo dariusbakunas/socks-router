@@ -17,6 +17,12 @@ pub struct CommandProcess {
     pub child: Option<Child>,
 }
 
+impl Default for CommandProcessTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandProcessTracker {
     pub fn new() -> Self {
         CommandProcessTracker {

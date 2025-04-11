@@ -5,6 +5,12 @@ pub struct RouteCache {
     cache: HashMap<String, String>,
 }
 
+impl Default for RouteCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RouteCache {
     pub fn new() -> Self {
         Self {

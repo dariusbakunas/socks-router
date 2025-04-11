@@ -30,7 +30,7 @@ pub async fn handle_upstream_udp_connection(
         let (_, data) = parse_socks5_udp_packet(&received_packet[..size])?;
 
         // Build the SOCKS5 UDP packet for the upstream
-        let udp_packet = build_socks5_udp_request(target_addr, target_port, &data)?;
+        let udp_packet = build_socks5_udp_request(target_addr, target_port, data)?;
 
         // Send the packet to the upstream server
         upstream_socket.send_to(&udp_packet, upstream_addr).await?;
@@ -77,7 +77,7 @@ pub async fn handle_direct_udp_connection(
 
         // Forward the packet to the target
         local_socket
-            .send_to(&data, (target_addr_parsed.ip(), target_addr_parsed.port()))
+            .send_to(data, (target_addr_parsed.ip(), target_addr_parsed.port()))
             .await?;
 
         // Receive response from the target

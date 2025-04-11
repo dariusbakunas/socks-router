@@ -1,6 +1,6 @@
 use crate::command::CommandProcessTracker;
-use crate::router::router::Router;
-use crate::server::server::execute_command;
+use crate::router::Router;
+use crate::server::execute_command;
 use crate::server::udp::{handle_direct_udp_connection, handle_upstream_udp_connection};
 use crate::server::utils::wait_for_port_open;
 use crate::stats::ConnectionMessage;
@@ -91,7 +91,7 @@ pub(crate) async fn handle_upstream_connection(
         .reply_success(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0))
         .await?;
 
-    transfer_data(inner, client, &target_addr, target_port, stats_tx.clone()).await?;
+    transfer_data(inner, client, target_addr, target_port, stats_tx.clone()).await?;
 
     Ok(())
 }

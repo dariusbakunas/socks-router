@@ -1,5 +1,5 @@
 use crate::command::CommandProcessTracker;
-use crate::router::router::Router;
+use crate::router::Router;
 use crate::server::utils::wait_for_port_open;
 use crate::stats::ConnectionMessage;
 use anyhow::bail;
@@ -21,7 +21,7 @@ pub async fn handle_http_connections(
 
     loop {
         tokio::select! {
-            Ok((socket, client_addr)) = listener.accept() => {
+            Ok((socket, _client_addr)) = listener.accept() => {
                 let active_tasks_clone = active_tasks.clone();
                 let router_clone = router.clone();
                 let command_tracker_clone = command_tracker.clone();
@@ -100,7 +100,7 @@ pub async fn serve_http(
 
             if let Some(command) = resolved_route.command() {
                 debug!("Handling command for route {}: {}", &target_host, command);
-                crate::server::server::execute_command(command_tracker.clone(), command).await?;
+                crate::server::execute_command(command_tracker.clone(), command).await?;
 
                 debug!("Checking if port {} on {} is open...", port, ip);
                 wait_for_port_open(&ip, port).await?;

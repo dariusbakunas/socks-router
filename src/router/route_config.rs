@@ -88,9 +88,11 @@ impl Route {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::Matches;
+    use super::Route;
     use ipnetwork::IpNetwork;
     use regex::Regex;
+    use std::str::FromStr;
 
     #[test]
     fn test_matches_with_regex_match() {
