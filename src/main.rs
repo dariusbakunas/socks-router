@@ -12,7 +12,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use anyhow::Result;
 use clap::Parser;
 use socks_router::cli::Cli;
-use socks_router::socks5::server::spawn_socks_server;
+use socks_router::server::server::spawn_socks_server;
 use socks_router::stats::{ConnectionMessage, ConnectionStats};
 use std::path::PathBuf;
 use std::sync::Arc;

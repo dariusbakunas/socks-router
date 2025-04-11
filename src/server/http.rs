@@ -1,18 +1,69 @@
 use crate::command::CommandProcessTracker;
 use crate::router::router::Router;
+use crate::server::utils::wait_for_port_open;
 use crate::stats::ConnectionMessage;
 use anyhow::bail;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{watch, Mutex};
+
+pub async fn handle_http_connections(
+    listener: TcpListener,
+    router: Arc<Router>,
+    mut shutdown_rx: watch::Receiver<bool>,
+    command_tracker: Arc<CommandProcessTracker>,
+    stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
+) {
+    let active_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> =
+        Arc::new(Mutex::new(Vec::new()));
+
+    loop {
+        tokio::select! {
+            Ok((socket, client_addr)) = listener.accept() => {
+                let active_tasks_clone = active_tasks.clone();
+                let router_clone = router.clone();
+                let command_tracker_clone = command_tracker.clone();
+                let stats_tx_clone = stats_tx.clone();
+
+                let task_handle = tokio::spawn(async move {
+                    if let Err(err) = serve_http(
+                        router_clone,
+                        command_tracker_clone,
+                        socket,
+                        stats_tx_clone,
+                    ).await {
+                        error!("Error handling HTTP connection: {:?}", err);
+                    }
+
+                    let mut tasks = active_tasks_clone.lock().await;
+                    tasks.retain(|handle| !handle.is_finished());
+                });
+
+                active_tasks.lock().await.push(task_handle);
+            }
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    info!("Shutdown signal received in HTTP handler. Stopping...");
+
+                    let tasks = active_tasks.lock().await.drain(..).collect::<Vec<_>>();
+                    for task in tasks {
+                        task.abort(); // Abort task
+                        let _ = task.await; // Wait for cleanup
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
 
 pub async fn serve_http(
     router: Arc<Router>,
     command_tracker: Arc<CommandProcessTracker>,
     mut socket: TcpStream,
     stats_tx: tokio::sync::mpsc::Sender<ConnectionMessage>,
-    client_addr: std::net::SocketAddr,
 ) -> anyhow::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -49,11 +100,15 @@ pub async fn serve_http(
 
             if let Some(command) = resolved_route.command() {
                 debug!("Handling command for route {}: {}", &target_host, command);
-                crate::socks5::server::execute_command(command_tracker.clone(), command).await?;
+                crate::server::server::execute_command(command_tracker.clone(), command).await?;
 
                 debug!("Checking if port {} on {} is open...", port, ip);
-                crate::socks5::server::wait_for_port_open(&ip, port).await?;
+                wait_for_port_open(&ip, port).await?;
             }
+
+            router
+                .add_to_cache(target_host.clone(), resolved_route.upstream().to_string())
+                .await;
 
             // Route exists: Use the upstream SOCKS5 proxy to connect
             let mut socks_client = fast_socks5::client::Socks5Stream::connect(
