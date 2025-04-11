@@ -1,5 +1,6 @@
 use crate::command::CommandProcessTracker;
 use crate::router::Router;
+use crate::server::transfer_data::transfer_data;
 use crate::server::utils::wait_for_port_open;
 use crate::stats::ConnectionMessage;
 use anyhow::bail;
@@ -123,18 +124,31 @@ pub async fn serve_http(
             let response = "HTTP/1.1 200 Connection Established\r\n\r\n";
             socket.write_all(response.as_bytes()).await?;
 
-            // Relay traffic
-            tokio::io::copy_bidirectional(&mut socket, &mut socks_client).await?;
+            transfer_data(
+                socket,
+                socks_client,
+                &target_host,
+                target_port,
+                stats_tx.clone(),
+            )
+            .await?;
         } else {
             // No route found: Connect directly to the target
-            let mut target_stream = TcpStream::connect((target_host.clone(), target_port)).await?;
+            let target_stream = TcpStream::connect((target_host.clone(), target_port)).await?;
 
             // Notify that the tunnel is successfully established
             let response = "HTTP/1.1 200 Connection Established\r\n\r\n";
             socket.write_all(response.as_bytes()).await?;
 
             // Relay traffic directly
-            tokio::io::copy_bidirectional(&mut socket, &mut target_stream).await?;
+            transfer_data(
+                socket,
+                target_stream,
+                &target_host,
+                target_port,
+                stats_tx.clone(),
+            )
+            .await?;
         }
     } else {
         // Handle standard HTTP requests like GET, POST, etc.

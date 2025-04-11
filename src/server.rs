@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 
 pub mod http;
 pub mod socks5;
+mod transfer_data;
 pub mod udp;
 pub mod utils;
 
