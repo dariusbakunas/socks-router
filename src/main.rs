@@ -12,7 +12,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use anyhow::Result;
 use clap::Parser;
 use socks_router::cli::Cli;
-use socks_router::socks5::server::spawn_socks_server;
+use socks_router::server::spawn_socks_server;
 use socks_router::stats::{ConnectionMessage, ConnectionStats};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,7 +83,14 @@ async fn tokio_main(cli: Cli) -> Result<()> {
 
     let stats_tx = stx.clone();
 
-    spawn_socks_server(&cli.listen_addr, &cli.route_config, shutdown_rx, stats_tx).await?;
+    spawn_socks_server(
+        &cli.listen_addr,
+        &cli.http_proxy,
+        &cli.route_config,
+        shutdown_rx,
+        stats_tx,
+    )
+    .await?;
 
     let stats = stats.lock().await;
     stats.print_stats();

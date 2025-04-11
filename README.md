@@ -7,6 +7,7 @@ Socks Router is a customizable, asynchronous SOCKS5 proxy server with route-base
 - **Custom Routing Rules**: Define rules in a YAML file to route traffic based on domain patterns.
 - **Asynchronous Performance**: Built with `tokio` for high-performance network handling.
 - **Flexible Upstream Proxying**: Route traffic to specific upstream SOCKS5 servers or fallback to direct connections for unmatched routes.
+- **HTTP Proxy**: Use it as HTTP proxy that will relay http connections to upstream SOCKS5 servers or fallback to direct connections for unmatched routes.
 - **Automatic configuration reloading**: Changes to routing configuration are automatically reloaded during runtime
 
 ## Installation
@@ -55,6 +56,7 @@ routes:
 ### Command-line Options
 
 - `--listen-addr <addr>`: Address and port on which the SOCKS proxy listens (default: `127.0.0.1:1080`).
+- `--http-proxy <addr>`: Address and port on which the HTTP proxy listens (default: `127.0.0.1:8080`).
 - `--route-config <file>`: Path to the YAML file containing the routing rules.
 - `--daemon`: (Unix Only) Run it as a daemon process
 
