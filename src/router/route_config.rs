@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Matches {
-    #[serde(with = "serde_regex")]
+    #[serde(default, with = "serde_regex")]
     regex: Option<Vec<Regex>>,
     #[serde(default, deserialize_with = "deserialize_ipnetwork_vec")]
     cidr: Option<Vec<IpNetwork>>,
